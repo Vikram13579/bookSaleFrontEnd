@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
-import { config } from './config';
 import './App.css';
+
+const config = {
+  API_URL: process.env.REACT_APP_API_URL,
+  GOOGLE_CLIENT_ID: process.env.REACT_APP_GOOGLE_CLIENT_ID
+};
+
 
 function getAuthHeaders() {
   const token = localStorage.getItem('jwtToken');
