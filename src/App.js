@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 import './App.css';
+//import { config } from './config';
 
 const config = {
   API_URL: process.env.REACT_APP_API_URL,
@@ -36,6 +37,12 @@ function App() {
   const [authError, setAuthError] = useState('');
   const [authSuccess, setAuthSuccess] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('jwtToken'));
+  
+  // Order History State
+  const [ordersOpen, setOrdersOpen] = useState(false);
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState('');
 
   // Email validation function
   const isValidEmail = (email) => {
@@ -187,6 +194,49 @@ function App() {
     setAuthSuccess('Logged out successfully.');
   };
 
+  // --- ORDER HISTORY HANDLERS ---
+  const fetchOrders = async () => {
+    setOrdersLoading(true);
+    setOrdersError('');
+    try {
+      const res = await fetch('${config.API_URL}/api/orders', { 
+        headers: getAuthHeaders() 
+      });
+      
+      if (res.status === 401 || res.status === 403) {
+        handleLogout();
+        setAuthError('Session expired. Please log in again.');
+        return;
+      }
+      
+      if (!res.ok) throw new Error('Failed to fetch orders');
+      
+      const data = await res.json();
+      setOrders(data);
+    } catch (err) {
+      setOrdersError(err.message);
+      setOrders([]);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+  const handleOpenOrders = () => {
+    if (!isLoggedIn) {
+      setAuthError('Please log in to view your orders');
+      setShowLogin(true);
+      return;
+    }
+    setOrdersOpen(true);
+    fetchOrders();
+  };
+
+  const handleCloseOrders = () => {
+    setOrdersOpen(false);
+    setOrders([]);
+    setOrdersError('');
+  };
+
   // --- PROTECTED API CALLS ---
   const handleAddToCart = async (bookId) => {
     if (!isLoggedIn) {
@@ -238,7 +288,7 @@ function App() {
       if (!addRes.ok) throw new Error('Failed to add to cart');
       
       // Then checkout
-      const checkoutRes = await fetch('/api/orders/checkout', { 
+      const checkoutRes = await fetch('${config.API_URL}/api/orders/checkout', { 
         method: 'POST', 
         headers: getAuthHeaders() 
       });
@@ -297,7 +347,10 @@ function App() {
   const handleCheckout = async () => {
     setCheckoutMessage('');
     try {
-      const res = await fetch('/api/orders/checkout', { method: 'POST', headers: getAuthHeaders() });
+      const res = await fetch('${config.API_URL}/api/orders/checkout', { 
+        method: 'POST', 
+        headers: getAuthHeaders() 
+      });
       if (res.status === 401 || res.status === 403) {
         handleLogout();
         setAuthError('Session expired. Please log in again.');
@@ -314,7 +367,7 @@ function App() {
   useEffect(() => {
     // Initial load: fetch all books
     fetchBooks('');
-    fetch('http://localhost:8080/api/popular-books')
+    fetch(`${config.API_URL}/api/popular-books`)
       .then((res) => res.json())
       .then((data) => setPopularBooks(data))
       .catch((err) => console.error('Failed to fetch popular books:', err));
@@ -329,7 +382,10 @@ function App() {
           <button onClick={() => { setShowLogin(true); setShowRegister(false); setAuthError(''); setAuthSuccess(''); }} style={{ padding: '8px 18px', background: '#007bff', color: '#fff', border: 'none', borderRadius: 4, fontSize: 16, cursor: 'pointer' }}>Login</button>
           <button onClick={() => { setShowRegister(true); setShowLogin(false); setAuthError(''); setAuthSuccess(''); }} style={{ padding: '8px 18px', background: '#28a745', color: '#fff', border: 'none', borderRadius: 4, fontSize: 16, cursor: 'pointer' }}>Register</button>
         </>}
-        {isLoggedIn && <button onClick={handleLogout} style={{ padding: '8px 18px', background: '#dc3545', color: '#fff', border: 'none', borderRadius: 4, fontSize: 16, cursor: 'pointer' }}>Logout</button>}
+        {isLoggedIn && <>
+          <button onClick={handleOpenOrders} style={{ padding: '8px 18px', background: '#17a2b8', color: '#fff', border: 'none', borderRadius: 4, fontSize: 16, cursor: 'pointer' }}>Order History</button>
+          <button onClick={handleLogout} style={{ padding: '8px 18px', background: '#dc3545', color: '#fff', border: 'none', borderRadius: 4, fontSize: 16, cursor: 'pointer' }}>Logout</button>
+        </>}
         <button onClick={handleOpenCart} style={{ padding: '8px 18px', background: '#ff9800', color: '#fff', border: 'none', borderRadius: 4, fontSize: 16, cursor: 'pointer' }}>View Cart</button>
       </div>
       {authError && <p style={{ color: 'red', marginTop: 60, textAlign: 'center' }}>{authError}</p>}
@@ -420,6 +476,57 @@ function App() {
           </form>
         </div>
       )}
+
+      {/* ORDER HISTORY MODAL */}
+      {ordersOpen && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000
+        }}
+          onClick={handleCloseOrders}
+        >
+          <div style={{ background: '#fff', padding: 32, borderRadius: 10, minWidth: 500, maxWidth: 700, maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 4px 24px rgba(0,0,0,0.15)', position: 'relative' }} onClick={e => e.stopPropagation()}>
+            <button onClick={handleCloseOrders} style={{ position: 'absolute', top: 10, right: 10, background: 'transparent', border: 'none', fontSize: 22, cursor: 'pointer' }}>&times;</button>
+            <h2>Order History</h2>
+            {ordersLoading && <p>Loading orders...</p>}
+            {ordersError && <p style={{ color: 'red' }}>{ordersError}</p>}
+            {orders.length === 0 && !ordersLoading && !ordersError && <p>You haven't placed any orders yet.</p>}
+            {orders.length > 0 && (
+              <div>
+                {orders.map(order => (
+                  <div key={order.id} style={{ border: '1px solid #ddd', marginBottom: 16, padding: 16, borderRadius: 8, background: '#f9f9f9' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <h3 style={{ margin: 0, color: '#333' }}>Order #{order.id}</h3>
+                      <span style={{ padding: '4px 8px', background: order.status === 'COMPLETED' ? '#28a745' : '#17a2b8', color: 'white', borderRadius: 4, fontSize: 12 }}>
+                        {order.status || 'PENDING'}
+                      </span>
+                    </div>
+                    <p style={{ margin: '4px 0', color: '#666' }}>
+                      <strong>Date:</strong> {new Date(order.orderDate).toLocaleDateString()}
+                    </p>
+                    <p style={{ margin: '4px 0', color: '#666' }}>
+                      <strong>Total:</strong> ${order.totalAmount ? order.totalAmount.toFixed(2) : 'N/A'}
+                    </p>
+                    {order.orderItems && order.orderItems.length > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <strong>Items:</strong>
+                        <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
+                          {order.orderItems.map(item => (
+                            <li key={item.id} style={{ marginBottom: 4 }}>
+                              {item.book.title} by {item.book.author} - Qty: {item.quantity} - ${(item.price * item.quantity).toFixed(2)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <h1>Popular Books</h1>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
         {popularBooks.length === 0 ? (
